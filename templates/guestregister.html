@@ -25,42 +25,31 @@
   <div class="container">
     <div class="form-container shadow my-5">
       <h3 class="text-center mb-4">Guest Registration</h3>
-      <form>
+      <form action="/guestregister" method="POST">
         <div class="mb-3">
-          <label for="firstName" class="form-label">First Name</label>
-          <input type="text" class="form-control" id="firstName" required>
+          <label for="first_name" class="form-label">First Name</label>
+          <input type="text" class="form-control" id="first_name" name="first_name" required>
           <div class="invalid-feedback">Please provide a valid first name.</div>
         </div>
         <div class="mb-3">
-          <label for="lastName" class="form-label">Last Name</label>
-          <input type="text" class="form-control" id="lastName" required>
+          <label for="last_name" class="form-label">Last Name</label>
+          <input type="text" class="form-control" id="last_name" name="last_name" required>
           <div class="invalid-feedback">Please provide a valid last name.</div>
         </div>
         <div class="mb-3">
           <label for="email" class="form-label">Email</label>
-          <input type="email" class="form-control" id="email" required>
+          <input type="email" class="form-control" id="email" name="email" required>
           <div class="invalid-feedback">Please provide a valid email address.</div>
         </div>
         <div class="mb-3">
           <label for="password" class="form-label">Password</label>
-          <input type="password" class="form-control" id="password" required minlength="5">
+          <input type="password" class="form-control" id="password" name="password" required minlength="5">
           <div class="invalid-feedback">Password must be at least 5 characters long.</div>
         </div>
         <div class="mb-3">
-          <label for="phone" class="form-label">Phone Number</label>
-          <input type="tel" class="form-control" id="phone" pattern="^\d{10}$" required>
+          <label for="phonenumber" class="form-label">Phone Number</label>
+          <input type="tel" class="form-control" id="phonenumber" pattern="^\d{10}$" name="phonenumber" required>
           <div class="invalid-feedback">Please provide a valid 10-digit phone number.</div>
-        </div>
-        <div class="mb-3">
-          <label for="user_type" class="form-label">Register As:</label>
-          <select class="form-select" id="user_type" name="user_type" required>
-            <option value="Visitor">Visitor</option>
-            <option value="Client">Client</option>
-          </select>
-        </div>
-        <div class="mb-3" id="bank_account_container" style="display: none;">
-          <label for="bank_account" class="form-label">Bank Account</label>
-          <input type="text" class="form-control" id="bank_account" name="bank_account">
         </div>
         <button type="submit" class="btn btn-primary w-100">Register</button>
       </form>
@@ -69,14 +58,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    document.getElementById('user_type').addEventListener('change', function() {
-    var bankAccountContainer = document.getElementById('bank_account_container');
-    if (this.value === 'Client') {
-      bankAccountContainer.style.display = 'block';
-    } else {
-      bankAccountContainer.style.display = 'none';
-    }
-    });
     // Starter JS for disabling form submissions if there are invalid fields
     (function () {
       'use strict'

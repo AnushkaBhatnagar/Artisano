@@ -1,0 +1,84 @@
+<!-- visitor.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visitor Page</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="mb-4">Exhibitions</h2>
+
+        <!-- Search Form -->
+        <form class="form-inline mb-4" action="{{ url_for('visitor_page') }}" method="GET">
+            <input type="text" class="form-control mr-2" name="name" placeholder="Exhibition Name">
+            <input type="date" class="form-control mr-2" name="exhib_date" placeholder="Exhibition Date">
+            <input type="time" class="form-control mr-2" name="start_time" placeholder="Start Time">
+            <input type="text" class="form-control mr-2" name="city" placeholder="City">
+            <button type="submit" class="btn btn-primary">Search</button>
+        </form>
+
+        <!-- Table -->
+        <table class="table table-striped table-bordered">
+            <thead class="thead-dark">
+                <tr>
+                    <th>Exhibition Name</th>
+                    <th>Exhibition Date</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Description</th>
+                    <th>Gallery Name</th>
+                    <th>City</th>
+                    <th>Get Ticket</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in exhibitions %}
+                <tr>
+                    <td>{{ row.name }}</td>
+                    <td>{{ row.exhib_date }}</td>
+                    <td>{{ row.start_time }}</td>
+                    <td>{{ row.end_time }}</td>
+                    <td>{{ row.description }}</td>
+                    <td>{{ row.gallery_name }}</td>
+                    <td>{{ row.city }}</td>
+                    <td>
+                        <button class="btn btn-success get-ticket-btn" 
+                                data-exhibition-id="{{ row.exhibition_id }}" 
+                                data-gallery-id="{{ row.gallery_id }}">Get Ticket</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- JavaScript to handle Get Ticket click -->
+    <script>
+        $(document).ready(function() {
+            $(".get-ticket-btn").click(function() {
+                const exhibitionId = $(this).data("exhibition-id");
+                const galleryId = $(this).data("gallery-id");
+
+                // Make an AJAX request to update the Visitor and Attend tables
+                $.ajax({
+                    url: "{{ url_for('get_ticket') }}",
+                    type: "POST",
+                    contentType: "application/json",
+                    data: JSON.stringify({ exhibition_id: exhibitionId, gallery_id: galleryId }),
+                    success: function(response) {
+                        alert(response.message); // Show success or error message
+                    },
+                    error: function() {
+                        alert("Error processing your request. Please try again.");
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
