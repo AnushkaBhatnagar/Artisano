@@ -11,6 +11,48 @@
 </head>
 <body>
     <div class="container mt-5">
+        <h2>My Tickets</h2>
+        <!-- Search Form -->
+        <form class="form-inline mb-4" action="{{ url_for('visitor_page') }}" method="GET">
+            <input type="text" class="form-control mr-2" name="name" placeholder="Exhibition Name">
+            <input type="date" class="form-control mr-2" name="exhib_date" placeholder="Exhibition Date">
+            <input type="time" class="form-control mr-2" name="start_time" placeholder="Start Time">
+            <input type="text" class="form-control mr-2" name="city" placeholder="City">
+            <button type="submit" class="btn btn-primary">Search</button>
+        </form>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Exhibition Name</th>
+                    <th>Exhibition Date</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Description</th>
+                    <th>Gallery Name</th>
+                    <th>City</th>
+                    <th>Delete Ticket</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ticket in my_tickets %}
+                    <tr>
+                        <td>{{ ticket.name }}</td>
+                        <td>{{ ticket.exhib_date }}</td>
+                        <td>{{ ticket.start_time }}</td>
+                        <td>{{ ticket.end_time }}</td>
+                        <td>{{ ticket.description }}</td>
+                        <td>{{ ticket.gallery_name }}</td>
+                        <td>{{ ticket.city }}</td>
+                        <td>
+                            <form action="{{ url_for('delete_ticket') }}" method="POST" style="display:inline;">
+                                <input type="hidden" name="exhibition_id" value="{{ ticket.exhibition_id }}">
+                                <button type="submit" class="btn btn-danger">Delete Ticket</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
         <h2 class="mb-4">Exhibitions</h2>
 
         <!-- Search Form -->
@@ -57,28 +99,63 @@
         </table>
     </div>
 
-    <!-- JavaScript to handle Get Ticket click -->
     <script>
         $(document).ready(function() {
-            $(".get-ticket-btn").click(function() {
-                const exhibitionId = $(this).data("exhibition-id");
-                const galleryId = $(this).data("gallery-id");
-
-                // Make an AJAX request to update the Visitor and Attend tables
+            $(".get-ticket-btn").click(function(event) {
+                event.preventDefault();
+                
+                // Get exhibition_id and gallery_id from the button's data attributes
+                let exhibitionId = $(this).data("exhibition-id");
+                let galleryId = $(this).data("gallery-id");
+                let button = $(this);
+    
+                console.log(exhibitionId, galleryId);
+    
+                // Send AJAX request to get ticket
                 $.ajax({
                     url: "{{ url_for('get_ticket') }}",
                     type: "POST",
                     contentType: "application/json",
-                    data: JSON.stringify({ exhibition_id: exhibitionId, gallery_id: galleryId }),
+                    data: JSON.stringify({
+                        exhibition_id: exhibitionId,
+                        gallery_id: galleryId
+                    }),
                     success: function(response) {
-                        alert(response.message); // Show success or error message
+                        alert(response.message);
+                        
+                        // If ticket booking is successful, move the row to "My Tickets" table
+                        if (response.exhibition) {
+                            let exhibitionRow = button.closest("tr").remove();
+                            let myTicketsTable = $("#my-tickets-table tbody");
+    
+                            let newRow = `
+                                <tr>
+                                    <td>${response.exhibition.name}</td>
+                                    <td>${response.exhibition.exhib_date}</td>
+                                    <td>${response.exhibition.start_time}</td>
+                                    <td>${response.exhibition.end_time}</td>
+                                    <td>${response.exhibition.description}</td>
+                                    <td>${response.exhibition.gallery_name}</td>
+                                    <td>${response.exhibition.city}</td>
+                                    <td>
+                                        <form action="{{ url_for('delete_ticket') }}" method="POST" style="display:inline;">
+                                            <input type="hidden" name="exhibition_id" value="${exhibitionId}">
+                                            <button type="submit" class="btn btn-danger">Delete Ticket</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            `;
+                            myTicketsTable.append(newRow);
+                            location.reload();
+                        }
                     },
-                    error: function() {
-                        alert("Error processing your request. Please try again.");
+                    error: function(xhr) {
+                        alert("Error: " + xhr.responseJSON.message);
                     }
                 });
             });
         });
     </script>
+
 </body>
 </html>

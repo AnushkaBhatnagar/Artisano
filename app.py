@@ -124,6 +124,77 @@ def client_page():
         return render_template("client.html")
     else:
         return redirect(url_for('login'))
+@app.route("/visitor", methods=["GET"])
+def visitor():
+    if 'guest_id' not in session:
+        return redirect(url_for("login"))
+
+    # Retrieve exhibitions and tickets for the user
+    with engine.connect() as connection:
+        # Get the visitor_id from the Visitor table based on the guest_id in the session
+        visitor_query = text("""
+            SELECT visitor_id FROM Visitor WHERE guest_id = :guest_id
+        """)
+        visitor_result = connection.execute(visitor_query, {"guest_id": session['guest_id']})
+        visitor_row = visitor_result.fetchone()
+
+        if visitor_row:
+            visitor_id = visitor_row[0]
+
+            # Get tickets for the user
+            my_tickets_query = text("""
+                SELECT A.exhibition_id, E.name, E.exhib_date, E.start_time, E.end_time, E.description, 
+                       G.name AS gallery_name, D.city
+                FROM Attend A
+                JOIN Exhibitions_Host E ON A.exhibition_id = E.exhibition_id
+                JOIN ArtGallery G ON E.gallery_id = G.gallery_id
+                JOIN Address D ON G.location = D.address_id
+                WHERE A.visitor_id = :visitor_id
+            """)
+            my_tickets = connection.execute(my_tickets_query, {"visitor_id": visitor_id}).fetchall()
+
+            # Get available exhibitions
+            exhibitions_query = text("""
+                SELECT E.exhibition_id, E.name, E.exhib_date, E.start_time, E.end_time, E.description, E.gallery_id,
+                       G.name AS gallery_name, D.city
+                FROM Exhibitions_Host E
+                JOIN ArtGallery G ON E.gallery_id = G.gallery_id
+                JOIN Address D ON G.location = D.address_id
+                WHERE E.exhibition_id NOT IN (SELECT exhibition_id FROM Attend WHERE visitor_id = :visitor_id)
+            """)
+            exhibitions = connection.execute(exhibitions_query, {"visitor_id": visitor_id}).fetchall()
+
+            return render_template("visitor.html", my_tickets=my_tickets, exhibitions=exhibitions)
+
+    return render_template("visitor.html", my_tickets=[], exhibitions=[])
+
+
+@app.route("/delete_ticket", methods=["POST"])
+def delete_ticket():
+    if 'guest_id' not in session:
+        return redirect(url_for("login"))
+
+    exhibition_id = request.form.get("exhibition_id")
+
+    with engine.connect() as connection:
+        # Get visitor_id from Visitor table
+        visitor_query = text("""
+            SELECT visitor_id FROM Visitor WHERE guest_id = :guest_id
+        """)
+        visitor_result = connection.execute(visitor_query, {"guest_id": session['guest_id']})
+        visitor_row = visitor_result.fetchone()
+
+        if visitor_row:
+            visitor_id = visitor_row[0]
+
+            # Delete the ticket from the Attend table
+            delete_query = text("""
+                DELETE FROM Attend WHERE exhibition_id = :exhibition_id AND visitor_id = :visitor_id
+            """)
+            connection.execute(delete_query, {"exhibition_id": exhibition_id, "visitor_id": visitor_id})
+
+    return redirect(url_for("visitor"))
+
 
 #@app.route("/visitor", methods=["GET", "POST"])
 @app.route("/visitor", methods=["GET"])
@@ -169,10 +240,6 @@ def get_ticket():
     exhibition_id = data.get('exhibition_id')
     gallery_id = data.get('gallery_id')
 
-    print("Guest ID:", guest_id)
-    print("Exhibition ID:", exhibition_id)
-    print("Gallery ID:", gallery_id)
-
     try:
         with engine.connect() as connection:
             # Check if guest_id is already in Visitor table
@@ -199,7 +266,33 @@ def get_ticket():
                 "visitor_id": visitor_id
             })
 
-        return jsonify({"message": "Ticket successfully booked!"})
+            # Fetch the details of the booked exhibition to send back to the client
+            exhibition_query = text("""
+                SELECT E.name, E.exhib_date, E.start_time, E.end_time, E.description, 
+                       G.name AS gallery_name, D.city
+                FROM Exhibitions_Host E
+                JOIN ArtGallery G ON E.gallery_id = G.gallery_id
+                JOIN Address D ON G.location = D.address_id
+                WHERE E.exhibition_id = :exhibition_id
+            """)
+            exhibition = connection.execute(exhibition_query, {"exhibition_id": exhibition_id}).fetchone()
+
+            if exhibition:
+                return jsonify({
+                    "message": "Ticket successfully booked!",
+                    "exhibition": {
+                        "name": exhibition.name,
+                        "exhib_date": exhibition.exhib_date.strftime("%Y-%m-%d"),
+                        "start_time": exhibition.start_time.strftime("%H:%M:%S"),
+                        "end_time": exhibition.end_time.strftime("%H:%M:%S"),
+                        "description": exhibition.description,
+                        "gallery_name": exhibition.gallery_name,
+                        "city": exhibition.city
+                    }
+                })
+            else:
+                return jsonify({"message": "Exhibition not found."}), 404
+
     except Exception as e:
         return jsonify({"message": f"Error: {str(e)}"}), 500
 
