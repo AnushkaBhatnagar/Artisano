@@ -1,11 +1,61 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>Client Page</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <script>
+        // Toggle button text for "Request to Buy"
+        function toggleRequest(button) {
+            if (button.innerHTML === "Request to Buy") {
+                button.innerHTML = "Request Submitted";
+            } else {
+                button.innerHTML = "Request to Buy";
+            }
+        }
+    </script>
 </head>
 <body>
-    client pageee
+    <div class="container my-5">
+        <!-- Personal Inventory Section -->
+        <h2 class="mt-4">Personal Inventory</h2>
+        {% if personal_inventory %}
+            <ul class="list-group">
+                {% for item in personal_inventory %}
+                    <li class="list-group-item d-flex align-items-center">
+                        <img src="{{ item.photo_url }}" alt="Item Image" class="img-thumbnail" style="width: 100px; height: 100px; object-fit: cover;">
+                        <div class="ml-3">
+                            <h5>{{ item.name }}</h5>
+                            <p><strong>Artist:</strong> {{ item.artist }}</p>
+                            <p><strong>Location:</strong> {{ item.location }}</p>
+                            <p><strong>Volume:</strong> {{ item.volume }}</p>
+                            <p><strong>Comment:</strong> {{ item.comment }}</p>
+                            <p><strong>Net Worth:</strong> ${{ item.net_worth }}</p>
+                            <p><strong>Status:</strong> {{ item.status }}</p>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No Items in the Inventory Yet</p>
+        {% endif %}
+
+        <!-- Browse Art Pieces Section -->
+        <h2 class="mt-4">Browse Art Pieces</h2>
+        <ul class="list-group">
+            {% for art_piece in browse_art_pieces %}
+                <li class="list-group-item d-flex align-items-center">
+                    <img src="{{ art_piece.photo_url }}" alt="Art Image" class="img-thumbnail" style="width: 100px; height: 100px; object-fit: cover;">
+                    <div class="ml-3">
+                        <h5>{{ art_piece.art_piece_name }}</h5>
+                        <p><strong>Artist:</strong> {{ art_piece.artist_name }}</p>
+                        <p><strong>Type:</strong> {{ art_piece.type }}</p>
+                        <p><strong>Genre:</strong> {{ art_piece.genre }}</p>
+                        <p><strong>Price:</strong> ${{ art_piece.price }}</p>
+                        <button class="btn btn-primary" onclick="toggleRequest(this)">Request to Buy</button>
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    </div>
 </body>
 </html>

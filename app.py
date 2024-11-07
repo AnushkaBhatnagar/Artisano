@@ -117,13 +117,66 @@ def guest_home():
     else:
         return redirect(url_for('login'))
 
-@app.route("/client")
+@app.route("/client_page", methods=["GET", "POST"])
 def client_page():
-    # Only allow access if user is logged in and is a guest
-    if 'user_id' in session and session.get('spec_user') == 'Guest':
-        return render_template("client.html")
-    else:
-        return redirect(url_for('login'))
+    if 'guest_id' not in session:
+        return redirect(url_for('login'))  # Redirect to login if not logged in
+
+    guest_id = session['guest_id']
+
+    with engine.connect() as connection:
+        # Check if guest_id is in the Client table
+        client_query = text("SELECT client_id FROM Client WHERE guest_id = :guest_id")
+        result = connection.execute(client_query, {"guest_id": guest_id})
+        client_row = result.fetchone()
+
+        if client_row:
+            # Get client_id
+            client_id = client_row[0]
+
+            # Query for Personal Inventory
+            personal_inventory_query = text("""
+                SELECT i.name, i.artist, i.photo_url, i.location, i.volume, 
+                       i.comment, i.net_worth, io.status
+                FROM Item_in i
+                JOIN Inventory_owned io ON i.inventory_id = io.inventory_id
+                JOIN Client c ON io.client_id = c.client_id
+                WHERE c.client_id = :client_id
+            """)
+            personal_inventory = connection.execute(personal_inventory_query, {"client_id": client_id}).fetchall()
+
+            # Query for Browse Art Pieces
+            browse_art_pieces_query = text("""
+                SELECT a.name AS art_piece_name, ar.name AS artist_name, a.type, 
+                       a.genre, a.price, a.photo_url
+                FROM ArtPieces_Produce a
+                JOIN Artists_Collaborates ar ON a.artist_id = ar.artist_id
+            """)
+            browse_art_pieces = connection.execute(browse_art_pieces_query).fetchall()
+
+            return render_template("client.html", client_id=client_id, 
+                                   personal_inventory=personal_inventory, 
+                                   browse_art_pieces=browse_art_pieces)
+        else:
+            # If guest_id is not in Client, prompt for bank account number
+            if request.method == "POST":
+                bank_account = request.form.get("bank_account")
+                if bank_account:
+                    # Insert new entry into Client table
+                    insert_client_query = text("""
+                        INSERT INTO Client (guest_id, bank_account) VALUES (:guest_id, :bank_account)
+                        RETURNING client_id
+                    """)
+                    result = connection.execute(insert_client_query, {
+                        "guest_id": guest_id,
+                        "bank_account": bank_account
+                    })
+                    client_id = result.fetchone()[0]
+                    return render_template("client.html", client_id=client_id)
+
+            # If not a POST request, render the modal to collect bank account
+            return render_template("client_modal.html")
+
 @app.route("/visitor", methods=["GET"])
 def visitor():
     if 'guest_id' not in session:
@@ -295,6 +348,7 @@ def get_ticket():
 
     except Exception as e:
         return jsonify({"message": f"Error: {str(e)}"}), 500
+
 
 @app.route("/logout")
 def logout():
