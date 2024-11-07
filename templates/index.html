@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Art Gallery Exhibition</title>
+    <title>Artisano</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
     <style>
         html, body {
@@ -38,6 +38,9 @@
             background-color: rgba(0, 0, 0, 0.7); /* Dark black overlay */
             z-index: 1;
         }
+        .navbar{
+            background-color: #000000;
+        }
         /* Centered Content Styling */
         .content-center {
             z-index: 2;
@@ -58,7 +61,7 @@
         }
         /* Footer Styling */
         .footer {
-            background-color: #212529;
+            background-color: #000000;
             color: white;
             padding: 1rem;
             text-align: center;
@@ -68,9 +71,9 @@
 <body>
     <div class="container-wrapper">
     <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top">
         <div class="container">
-            <a class="navbar-brand" href="#">Art Exhibition</a>
+            <a class="navbar-brand" href="{{ url_for('home')}}">Artisano</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -90,19 +93,18 @@
     <!-- Background Image Section with Content -->
     <div class="bg-image">
         <div class="bg-overlay"></div>
-        
         <div class="content-center">
-            <h1 class="title-font">Title</h1>
+            <h1 class="title-font">Artisano</h1>
             <p class="description-font">
-                Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec vehicula auctor mi, ut viverra eros pretium sed. 
-                Curabitur ultricies orci et tortor ullamcorper.
+                Welcome to the world of curated art and vibrant exhibitions! 
+                <br><br>Discover unique art pieces, explore the works of talented artists, and experience the beauty of gallery culture, all in one place. 
             </p>
         </div>
     </div>
 
     <!-- Footer -->
     <footer class="footer">
-        <p>&copy; 2024 Art Exhibition <span>&#169;</span></p>
+        <p>Project by Cyril Van Leer and Anushka Bhatnagar &copy; For COMS 4111, Columbia University (2024)</p>
     </footer>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>

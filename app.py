@@ -113,7 +113,13 @@ def guest_home():
     # Check if user is logged in and is a guest
     if 'user_id' in session and session.get('spec_user') == 'Guest':
         user_id = session['user_id']
-        return render_template("guesthome.html", user_id=user_id)
+        with engine.connect() as connection:
+            welcome_query = text("""
+                            SELECT first_name FROM Users WHERE user_id = :user_id
+                        """)
+            result = connection.execute(welcome_query, {"user_id": user_id})
+            guestname = result.fetchone()
+        return render_template("guesthome.html", gname=guestname[0])
     else:
         return redirect(url_for('login'))
 
@@ -354,7 +360,7 @@ def get_ticket():
 def logout():
     # Clear the session data and redirect to the login page
     session.clear()
-    return redirect(url_for('login'))
+    return redirect(url_for('home'))
 
 if __name__ == '__main__':
     app.run(debug=True)
