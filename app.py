@@ -185,9 +185,10 @@ def client_page():
             # Query for Browse Art Pieces
             browse_art_pieces_query = text("""
                 SELECT a.name AS art_piece_name, ar.name AS artist_name, a.type, 
-                       a.genre, a.price, a.photo_url
+                       a.genre, a.price, a.photo_url, a.art_id
                 FROM ArtPieces_Produce a
                 JOIN Artists_Collaborates ar ON a.artist_id = ar.artist_id
+                WHERE ar.liason_id is NOT NULL
             """)
             browse_art_pieces = connection.execute(browse_art_pieces_query).fetchall()
 
@@ -522,44 +523,40 @@ def marketing_below():
 
         # Retrieve candidate exhibitions available to manage
         candidate_below_result = connection.execute(text("""
-            WITH Available_Shifts AS (
-                SELECT sw.staff_id, s.shift_date, s.start_time, s.end_time
-                FROM When_work ww
-                JOIN Shifts s ON ww.shift_id = s.shift_id
-                JOIN Staff_workat sw ON ww.staff_id = sw.staff_id
-                WHERE sw.staff_id IN (
-                    SELECT staff_id
-                    FROM Marketing
-                    WHERE marketing_id = :marketing_id
-                    AND level < 7  
-                )
-            ),
-            Exhibition_Details AS (
-                SELECT eh.exhibition_id, eh.exhib_date, eh.start_time, eh.end_time, eh.gallery_id, eh.name AS exhibition_name
-                FROM Exhibitions_Host eh
-            ),
-            Eligible_Exhibitions AS (
-                SELECT ed.exhibition_id, ed.exhib_date, ed.start_time, ed.end_time, ed.gallery_id, ed.exhibition_name, m2.marketing_id AS existing_marketing_id
-                FROM Exhibition_Details ed
-                JOIN Manage m2 ON ed.exhibition_id = m2.exhibition_id AND ed.gallery_id = m2.gallery_id
-                JOIN Marketing mk ON m2.marketing_id = mk.marketing_id
-                WHERE m2.marketing_id != :marketing_id
-                AND mk.level >= 7
-                AND NOT EXISTS (
-                    SELECT 1
-                    FROM Manage m
-                    WHERE m.exhibition_id = ed.exhibition_id
-                    AND m.gallery_id = ed.gallery_id
-                    AND m.marketing_id = :marketing_id
-                )
+            WITH managed_exhib AS (
+            SELECT m.exhibition_id, m.gallery_id, eh.name AS exhibition_name, 
+                eh.exhib_date, eh.start_time AS exhibition_start, 
+                eh.end_time AS exhibition_end, eh.description, m.marketing_id AS existing_marketing_id
+            FROM Manage m 
+            JOIN Marketing m2 ON m.marketing_id = m2.marketing_id
+            JOIN Exhibitions_Host eh ON m.exhibition_id = eh.exhibition_id 
+                                    AND m.gallery_id = eh.gallery_id
+            WHERE m.marketing_id != :marketing_id 
+            AND m2.level >= 7
+            AND m.exhibition_id NOT IN (
+                SELECT exhibition_id
+                FROM Manage
+                WHERE marketing_id = :marketing_id
             )
-            SELECT ee.exhibition_id, ee.exhib_date, ee.start_time, ee.end_time, ag.name AS gallery_name, asw.staff_id, ee.exhibition_name, ee.existing_marketing_id
-            FROM Eligible_Exhibitions ee
-            JOIN ArtGallery ag ON ee.gallery_id = ag.gallery_id
-            JOIN Available_Shifts asw ON asw.shift_date = ee.exhib_date
-            WHERE asw.start_time <= ee.end_time
-            AND asw.end_time >= ee.start_time
-            ORDER BY ee.exhib_date, ee.start_time
+        ),
+        my_shifts AS (
+            SELECT s.shift_date, s.start_time, s.end_time, sw.staff_id
+            FROM Shifts s
+            JOIN When_work w ON s.shift_id = w.shift_id
+            JOIN Staff_workat sw ON w.staff_id = sw.staff_id
+            JOIN Marketing m ON sw.staff_id = m.staff_id
+            WHERE m.marketing_id = :marketing_id
+        )
+
+        SELECT me.exhibition_id, me.exhib_date, me.exhibition_start, me.exhibition_end,
+            ag.name AS gallery_name, ms.staff_id, me.exhibition_name, me.existing_marketing_id, ms.start_time, ms.end_time
+        FROM managed_exhib me
+        JOIN my_shifts ms ON me.exhib_date = ms.shift_date
+        JOIN ArtGallery ag ON me.gallery_id = ag.gallery_id
+        WHERE me.exhibition_start >= ms.start_time 
+        AND me.exhibition_end <= ms.end_time
+
+
         """), {"marketing_id": marketing_info[0]})
         
         candidate_below_info = candidate_below_result.fetchall()
@@ -599,7 +596,7 @@ def marketing_above():
             WHERE m.marketing_id = :marketing_id;
             """), {"marketing_id": marketing_result[0]})
 
-        managed_exhib = managed_result.fetchall()  
+        managed_exhib = managed_result.fetchall() 
 
         exhibitions_info = {}
         for exhibition in managed_exhib:
@@ -674,30 +671,28 @@ def marketing_above():
             })
 
             new_result = connection.execute(text("""
-                SELECT
-                    e.name AS "Exhibition Name", g.name AS "Gallery Name", e.exhib_date AS "Exhibition Date",
-                    e.start_time AS "Start Time", e.end_time AS "End Time", e.exhibition_id AS "Exhibition ID"
-                FROM Exhibitions_Host e
-                JOIN ArtGallery g ON e.gallery_id = g.gallery_id
-                JOIN
-                    When_work ww ON ww.staff_id IN (
-                        SELECT staff_id 
-                        FROM Marketing
-                        WHERE marketing_id = :marketing_id
-                    ) 
-                JOIN Shifts s ON ww.shift_id = s.shift_id
-                WHERE e.exhib_date = s.shift_date  
-                    AND (
-                        (e.start_time >= s.start_time AND e.start_time < s.end_time) OR 
-                        (e.end_time > s.start_time AND e.end_time <= s.end_time) OR  
-                        (e.start_time <= s.start_time AND e.end_time >= s.end_time)    
-                    )
-                    AND NOT EXISTS (
-                        SELECT 1
-                        FROM Marketing m
-                        WHERE m.staff_id = ww.staff_id
-                        AND m.staff_id = e.exhibition_id  
-                    )
+                WITH my_shifts AS (
+                SELECT s.shift_date, s.start_time AS shift_start, s.end_time AS shift_end
+                FROM Shifts s
+                JOIN When_work w ON s.shift_id = w.shift_id
+                JOIN Staff_workat sw ON w.staff_id = sw.staff_id
+                JOIN Marketing m ON sw.staff_id = m.staff_id
+                WHERE m.marketing_id = :marketing_id
+            ),
+            managed_exhib AS (
+                SELECT eh.exhibition_id, eh.gallery_id, eh.name AS exhibition_name, 
+                    eh.exhib_date, eh.start_time AS exhibition_start, 
+                    eh.end_time AS exhibition_end, eh.description
+                FROM Exhibitions_Host eh
+                LEFT JOIN Manage m ON eh.exhibition_id = m.exhibition_id
+                WHERE m.exhibition_id IS NULL  -- No marketing managing the exhibition
+            )
+            SELECT me.exhibition_name AS "Exhibition Name", me.exhib_date AS "Exhibition Date", 
+            me.exhibition_start AS "Start Time", me.exhibition_end AS "End Time", me.gallery_id, me.description, me.exhibition_id AS "Exhibition ID"
+            FROM managed_exhib me
+            JOIN my_shifts ms ON me.exhib_date = ms.shift_date
+            WHERE ms.shift_start <= me.exhibition_start 
+            AND ms.shift_end >= me.exhibition_end
 
             """), {"marketing_id": marketing_result[0]})
 
@@ -850,6 +845,36 @@ def add_management():
 
     flash("Exhibition added to your management list.", "success")
     return redirect(url_for('marketing_below'))
+
+@app.route('/purchase_art', methods=['POST'])
+def purchase_art():
+    data = request.get_json()
+    client_id = data.get('client_id')
+    art_id = data.get('art_id')
+
+    if not client_id or not art_id:
+        return jsonify({'success': False, 'error': 'Missing guest ID or art ID'})
+
+    # Log the data for debugging
+    print("Client ID:", client_id)
+    print("Art ID:", art_id)
+
+    query = text("""
+        
+        """)
+
+        # Execute the query using the connection
+    try:
+        with engine.connect() as connection:
+            connection.execute(query, {'client_id': client_id, 'art_id': art_id})
+            connection.commit()
+
+        # Return success response
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print("Error executing query:", e)
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route("/logout")
 def logout():
