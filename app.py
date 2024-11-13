@@ -1,6 +1,7 @@
 from flask import Flask, redirect, render_template, request, url_for, session, flash, jsonify
 from sqlalchemy import create_engine, text
 import os
+from functools import wraps
 
 app = Flask(__name__)
 
@@ -8,85 +9,70 @@ app = Flask(__name__)
 DATABASE_URL = "postgresql://cv2599:cv2599@w4111.cisxo09blonu.us-east-1.rds.amazonaws.com/w4111"
 engine = create_engine(DATABASE_URL)
 
-app = Flask(__name__)
 app.secret_key = os.urandom(12)
 
 @app.route("/", methods=["GET", "POST"])
 def home():
     return render_template("index.html")
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash("Please log in to access this page.", "warning")
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    # Check if user is already logged in, log them out if they access login page again
+    if 'user_id' in session:
+        session.clear()  # Clear session if accessing login page while logged in
+    
     if request.method == 'POST':
         email = request.form.get('email')
         password = request.form.get('password')
 
-        # Debug prints to see values being received
-        #print("Email:", email)
-        #print("Password:", password)
-
-        # Check in the database for user credentials
+        # Check in the database for user credentials using a parameterized query
         with engine.connect() as connection:
             query = text("SELECT user_id, spec_user FROM Users WHERE email = :email AND password = :password")
             result = connection.execute(query, {"email": email, "password": password}).fetchone()
 
             if result:
                 user_id, spec_user = result
-
-                # Store user details in session
                 session['user_id'] = user_id
                 session['spec_user'] = spec_user
 
                 if spec_user == "Guest":
-                    # Fetch guest_id from the Guest table
-                    guest_query = text("""
-                        SELECT guest_id FROM Guest WHERE user_id = :user_id
-                    """)
-                    guest_result = connection.execute(guest_query, {"user_id": user_id})
-                    guest_row = guest_result.fetchone()
-
-                    if guest_row:
-                        session['guest_id'] = guest_row[0]  # Store guest_id in session
+                    guest_query = text("SELECT guest_id FROM Guest WHERE user_id = :user_id")
+                    guest_result = connection.execute(guest_query, {"user_id": user_id}).fetchone()
+                    if guest_result:
+                        session['guest_id'] = guest_result[0]
                     else:
                         flash("Guest not found.", "danger")
                         return redirect(url_for("login"))
 
                     return redirect(url_for("guest_home"))
                 elif spec_user == 'Staff':
-                    #return redirect(url_for('staff_home'))  # You may have a different staff home page
-                    with engine.connect() as connection:
-                        staff_result = connection.execute(text("""
-                            SELECT spec_staff, staff_id 
-                            FROM Staff_workat 
-                            WHERE user_id = :user_id
-                        """), {"user_id": user_id})
-                        
-                        staff_info = staff_result.fetchone()
-                        spec_staff = staff_info[0].strip() if staff_info else None
+                    staff_result = connection.execute(text("SELECT spec_staff, staff_id FROM Staff_workat WHERE user_id = :user_id"), {"user_id": user_id})
+                    staff_info = staff_result.fetchone()
+                    spec_staff = staff_info[0].strip() if staff_info else None
 
-                        if spec_staff == 'Liaison':
-                            return redirect(url_for('liaison_dashboard'))
+                    if spec_staff == 'Liaison':
+                        return redirect(url_for('liaison_dashboard'))
 
-                        if spec_staff == 'Marketing':
+                    if spec_staff == 'Marketing':
+                        marketing_result = connection.execute(text("SELECT marketing_id, level FROM marketing WHERE staff_id = :staff_id"), {"staff_id": staff_info[1]}).fetchone()
+                        level = marketing_result[1]
 
-                            with engine.connect() as connection:
-                                marketing_result = connection.execute(text("""
-                                    SELECT marketing_id,level 
-                                    FROM marketing 
-                                    WHERE staff_id = :staff_id
-                                """), {"staff_id": staff_info[1]})
-                                marketing_result = marketing_result.fetchone()
-
-                                level = marketing_result[1]
-
-                                if level < 7:
-                                    return redirect(url_for('marketing_below'))
-
-                                elif level >= 7:
-                                    return redirect(url_for('marketing_above'))
-                                    
+                        if level < 7:
+                            return redirect(url_for('marketing_below'))
+                        else:
+                            return redirect(url_for('marketing_above'))
             else:
-                return "Invalid email or password, please try again."
+                flash("Invalid email or password, please try again.", "danger")
+                return redirect(url_for("login"))
 
     return render_template("login.html")
 
@@ -101,20 +87,13 @@ def guest_register():
         phonenumber = request.form.get('phonenumber')
         spec_user = "Guest"  # Default value for all entries
 
-        # print("First Name:", first_name)
-        # print("Last Name:", last_name)
-        # print("Email:", email)
-        # print("Password:", password)
-        # print("Phone Number:", phonenumber)
-
-        # Insert the new user into the Users table
+        # Insert the new user into the Users table using parameterized queries
         with engine.connect() as connection:
             insert_user_query = text("""
                 INSERT INTO Users (first_name, last_name, spec_user, password, phonenumber, email) 
                 VALUES (:first_name, :last_name, :spec_user, :password, :phonenumber, :email) 
                 RETURNING user_id
             """)
-
             result = connection.execute(insert_user_query, {
                 "first_name": first_name,
                 "last_name": last_name,
@@ -123,31 +102,32 @@ def guest_register():
                 "phonenumber": phonenumber,
                 "email": email
             })
-
             user_id = result.fetchone()[0]  # Get the generated user_id
 
+            # Insert guest record using the user_id generated above
             update_guest_query = text("""
                 INSERT INTO Guest (user_id) 
                 VALUES (:user_id)
                 RETURNING guest_id
             """)
             result = connection.execute(update_guest_query, {"user_id": user_id})
-            #guest_id = result.fetchone()[0]  
-            # Get the generated guest_id
+            guest_id = result.fetchone()[0]  # Get the generated guest_id
 
-        return redirect(url_for('home'))  # Redirect to the main page after successful registration
+        # Redirect to home page after successful registration
+        return redirect(url_for('home'))
 
     return render_template("guestregister.html")
 
 @app.route("/guesthome")
+@login_required
 def guest_home():
     # Check if user is logged in and is a guest
     if 'user_id' in session and session.get('spec_user') == 'Guest':
         user_id = session['user_id']
         with engine.connect() as connection:
             welcome_query = text("""
-                            SELECT first_name FROM Users WHERE user_id = :user_id
-                        """)
+                SELECT first_name FROM Users WHERE user_id = :user_id
+            """)
             result = connection.execute(welcome_query, {"user_id": user_id})
             guestname = result.fetchone()
         return render_template("guesthome.html", gname=guestname[0])
@@ -162,8 +142,10 @@ def client_page():
     guest_id = session['guest_id']
 
     with engine.connect() as connection:
-        # Check if guest_id is in the Client table
-        client_query = text("SELECT client_id FROM Client WHERE guest_id = :guest_id")
+        # Check if guest_id is in the Client table using a parameterized query
+        client_query = text("""
+            SELECT client_id FROM Client WHERE guest_id = :guest_id
+        """)
         result = connection.execute(client_query, {"guest_id": guest_id})
         client_row = result.fetchone()
 
@@ -171,7 +153,7 @@ def client_page():
             # Get client_id
             client_id = client_row[0]
 
-            # Query for Personal Inventory
+            # Query for Personal Inventory using a parameterized query
             personal_inventory_query = text("""
                 SELECT i.name, i.artist, i.photo_url, i.location, i.volume, 
                        i.comment, i.net_worth, io.status
@@ -182,7 +164,7 @@ def client_page():
             """)
             personal_inventory = connection.execute(personal_inventory_query, {"client_id": client_id}).fetchall()
 
-            # Query for Browse Art Pieces
+            # Query for Browse Art Pieces using a parameterized query
             browse_art_pieces_query = text("""
                 SELECT a.name AS art_piece_name, ar.name AS artist_name, a.type, 
                        a.genre, a.price, a.photo_url, a.art_id
@@ -200,7 +182,7 @@ def client_page():
             if request.method == "POST":
                 bank_account = request.form.get("bank_account")
                 if bank_account:
-                    # Insert new entry into Client table
+                    # Insert new entry into Client table using parameterized query
                     insert_client_query = text("""
                         INSERT INTO Client (guest_id, bank_account) VALUES (:guest_id, :bank_account)
                         RETURNING client_id
@@ -209,7 +191,7 @@ def client_page():
                         "guest_id": guest_id,
                         "bank_account": bank_account
                     })
-                    client_id = result.fetchone()[0]
+                    client_id = result.fetchone()[0]  # Get the generated client_id
                     return render_template("client.html", client_id=client_id)
 
             # If not a POST request, render the modal to collect bank account
@@ -287,7 +269,6 @@ def delete_ticket():
     return redirect(url_for("visitor"))
 
 
-#@app.route("/visitor", methods=["GET", "POST"])
 @app.route("/visitor", methods=["GET"])
 def visitor_page():
     # Get search parameters from the form
@@ -342,9 +323,9 @@ def get_ticket():
             if visitor_row is None:
                 insert_visitor_query = text("INSERT INTO Visitor (guest_id) VALUES (:guest_id) RETURNING visitor_id")
                 result = connection.execute(insert_visitor_query, {"guest_id": guest_id})
-                visitor_id = result.fetchone()[0]  # Get the new visitor_id
+                visitor_id = result.fetchone()[0]
             else:
-                visitor_id = visitor_row[0]  # Get the existing visitor_id
+                visitor_id = visitor_row[0]
 
             # Insert into Attend table
             insert_attend_query = text("""
@@ -398,42 +379,53 @@ def liaison_dashboard():
         """), {"user_id": user_id})
                         
         staff_info = staff_result.fetchone()
-        with engine.connect() as connection:
-            liaison_result = connection.execute(text("""
-                SELECT liaison_id,speciality 
-                FROM liaison 
-                WHERE staff_id = :staff_id
-            """), {"staff_id": staff_info[1]})
-        liaison_info = liaison_result.fetchone()
+        if not staff_info:
+            return jsonify({"message": "Staff not found."}), 404
 
-        with engine.connect() as connection:
-            result = connection.execute(text("""
-                SELECT 
+        liaison_result = connection.execute(text("""
+            SELECT liaison_id, speciality 
+            FROM liaison 
+            WHERE staff_id = :staff_id
+        """), {"staff_id": staff_info.staff_id})
+        
+        liaison_info = liaison_result.fetchone()
+        if not liaison_info:
+            return jsonify({"message": "Liaison not found."}), 404
+
+        result = connection.execute(text("""
+            SELECT 
                 ac.artist_id, ac.liason_id, ac.name, ac.email, ac.nationality, ac.salary, ac.studio_loc, ac.priority_level, 
                 ap.art_id, ap.name as art_name, ap.date, ap.type, ap.genre, ap.price, ap.photo_url
-                FROM artists_collaborates ac
-                JOIN artpieces_produce ap ON ac.artist_id = ap.artist_id
-                WHERE liason_id = :liaison_id
-            """), {"liaison_id": liaison_info[0]})
+            FROM artists_collaborates ac
+            JOIN artpieces_produce ap ON ac.artist_id = ap.artist_id
+            WHERE liason_id = :liaison_id
+        """), {"liaison_id": liaison_info.liaison_id})
                                 
-            artists = result.fetchall()  if result else []
+        artists = result.fetchall()
 
-        with engine.connect() as connection:
-            candidates_result = connection.execute(text("""
-                WITH artist_genres AS (
-                SELECT ac.artist_id, ac.name, COUNT(*) AS total_artworks, COUNT(CASE WHEN ap.genre = :speciality THEN 1 END) AS contemporary_artworks
+        candidates_result = connection.execute(text("""
+            WITH artist_genres AS (
+                SELECT ac.artist_id, ac.name, COUNT(*) AS total_artworks, 
+                       COUNT(CASE WHEN ap.genre = :speciality THEN 1 END) AS matching_artworks
                 FROM artists_collaborates ac
                 JOIN artpieces_produce ap ON ac.artist_id = ap.artist_id
                 WHERE ac.liason_id IS NULL
                 GROUP BY ac.artist_id, ac.name
-                )
-                SELECT artist_id, name
-                FROM artist_genres
-                
-                """), {"speciality": liaison_info[1].strip()})
+            )
+            SELECT artist_id, name
+            FROM artist_genres
+            WHERE matching_artworks > 0
+        """), {"speciality": liaison_info.speciality.strip()})
 
-            candidates = candidates_result.fetchall()
-        return render_template('liaison_dashboard.html', liaison_id=liaison_info[0], speciality=liaison_info[1], artists=artists, candidates=candidates)
+        candidates = candidates_result.fetchall()
+
+    return render_template(
+        'liaison_dashboard.html',
+        liaison_id=liaison_info.liaison_id,
+        speciality=liaison_info.speciality,
+        artists=artists,
+        candidates=candidates
+    )
 
 @app.route('/remove_collaboration/<int:artist_id>', methods=["POST"])
 def remove_collaboration(artist_id):
@@ -444,7 +436,6 @@ def remove_collaboration(artist_id):
             WHERE artist_id = :artist_id
         """), {"artist_id": artist_id})
     return jsonify({"success": True})
-    #return redirect(url_for('liaison_dashboard'))
 
 @app.route('/add_collaboration', methods=["POST"])
 def add_collaboration():
@@ -459,6 +450,7 @@ def add_collaboration():
         return jsonify({"success": False, "error": "No artist ID provided"})
 
     with engine.connect() as connection:
+        # Safely fetch liaison information
         liaison_result = connection.execute(text("""
             SELECT liaison_id 
             FROM liaison 
@@ -471,7 +463,7 @@ def add_collaboration():
 
         liaison_id = liaison_info[0]
 
-        # Update the artist's liaison association
+        # Safely update the artist's liaison association
         update_query = text("""
             UPDATE artists_collaborates 
             SET liason_id = :liaison_id 
@@ -483,9 +475,12 @@ def add_collaboration():
 
 @app.route('/marketing_below', methods=["GET", "POST"])
 def marketing_below():
+    if 'user_id' not in session:
+        return "User not logged in.", 401
+
     user_id = session['user_id']
     with engine.connect() as connection:
-        # Retrieve staff information
+        # Safely retrieve staff information
         staff_result = connection.execute(text("""
             SELECT spec_staff, staff_id 
             FROM Staff_workat 
@@ -496,9 +491,9 @@ def marketing_below():
         if not staff_info:
             return "Staff information not found for the current user.", 404
         
-        spec_staff = staff_info[0].strip() if staff_info else None
-        
-        # Retrieve marketing information
+        spec_staff = staff_info[0].strip()
+
+        # Safely retrieve marketing information
         marketing_result = connection.execute(text("""
             SELECT marketing_id, level 
             FROM marketing 
@@ -509,54 +504,52 @@ def marketing_below():
         if not marketing_info:
             return "Marketing information not found for the staff member.", 404
 
-        # Retrieve managed exhibitions
+        # Safely retrieve managed exhibitions
         managed_result = connection.execute(text("""
             SELECT eh.name AS exhibition_name, ag.name AS gallery_name, eh.exhib_date AS exhibition_date, 
                    eh.start_time, eh.end_time, m.marketing_id, eh.exhibition_id
             FROM Exhibitions_Host eh
             JOIN ArtGallery ag ON eh.gallery_id = ag.gallery_id
             JOIN Manage m ON eh.exhibition_id = m.exhibition_id AND eh.gallery_id = m.gallery_id
-            WHERE m.marketing_id = :marketing_id;
+            WHERE m.marketing_id = :marketing_id
         """), {"marketing_id": marketing_info[0]})
         
         managed_below_exhib = managed_result.fetchall()
 
-        # Retrieve candidate exhibitions available to manage
+        # Safely retrieve candidate exhibitions available to manage
         candidate_below_result = connection.execute(text("""
             WITH managed_exhib AS (
-            SELECT m.exhibition_id, m.gallery_id, eh.name AS exhibition_name, 
-                eh.exhib_date, eh.start_time AS exhibition_start, 
-                eh.end_time AS exhibition_end, eh.description, m.marketing_id AS existing_marketing_id
-            FROM Manage m 
-            JOIN Marketing m2 ON m.marketing_id = m2.marketing_id
-            JOIN Exhibitions_Host eh ON m.exhibition_id = eh.exhibition_id 
-                                    AND m.gallery_id = eh.gallery_id
-            WHERE m.marketing_id != :marketing_id 
-            AND m2.level >= 7
-            AND m.exhibition_id NOT IN (
-                SELECT exhibition_id
-                FROM Manage
-                WHERE marketing_id = :marketing_id
+                SELECT m.exhibition_id, m.gallery_id, eh.name AS exhibition_name, 
+                       eh.exhib_date, eh.start_time AS exhibition_start, 
+                       eh.end_time AS exhibition_end, eh.description, m.marketing_id AS existing_marketing_id
+                FROM Manage m 
+                JOIN Marketing m2 ON m.marketing_id = m2.marketing_id
+                JOIN Exhibitions_Host eh ON m.exhibition_id = eh.exhibition_id 
+                                          AND m.gallery_id = eh.gallery_id
+                WHERE m.marketing_id != :marketing_id 
+                  AND m2.level >= 7
+                  AND m.exhibition_id NOT IN (
+                      SELECT exhibition_id
+                      FROM Manage
+                      WHERE marketing_id = :marketing_id
+                  )
+            ),
+            my_shifts AS (
+                SELECT s.shift_date, s.start_time, s.end_time, sw.staff_id
+                FROM Shifts s
+                JOIN When_work w ON s.shift_id = w.shift_id
+                JOIN Staff_workat sw ON w.staff_id = sw.staff_id
+                JOIN Marketing m ON sw.staff_id = m.staff_id
+                WHERE m.marketing_id = :marketing_id
             )
-        ),
-        my_shifts AS (
-            SELECT s.shift_date, s.start_time, s.end_time, sw.staff_id
-            FROM Shifts s
-            JOIN When_work w ON s.shift_id = w.shift_id
-            JOIN Staff_workat sw ON w.staff_id = sw.staff_id
-            JOIN Marketing m ON sw.staff_id = m.staff_id
-            WHERE m.marketing_id = :marketing_id
-        )
-
-        SELECT me.exhibition_id, me.exhib_date, me.exhibition_start, me.exhibition_end,
-            ag.name AS gallery_name, ms.staff_id, me.exhibition_name, me.existing_marketing_id, ms.start_time, ms.end_time
-        FROM managed_exhib me
-        JOIN my_shifts ms ON me.exhib_date = ms.shift_date
-        JOIN ArtGallery ag ON me.gallery_id = ag.gallery_id
-        WHERE me.exhibition_start >= ms.start_time 
-        AND me.exhibition_end <= ms.end_time
-
-
+            SELECT me.exhibition_id, me.exhib_date, me.exhibition_start, me.exhibition_end,
+                   ag.name AS gallery_name, ms.staff_id, me.exhibition_name, 
+                   me.existing_marketing_id, ms.start_time, ms.end_time
+            FROM managed_exhib me
+            JOIN my_shifts ms ON me.exhib_date = ms.shift_date
+            JOIN ArtGallery ag ON me.gallery_id = ag.gallery_id
+            WHERE me.exhibition_start >= ms.start_time 
+              AND me.exhibition_end <= ms.end_time
         """), {"marketing_id": marketing_info[0]})
         
         candidate_below_info = candidate_below_result.fetchall()
@@ -572,6 +565,7 @@ def marketing_below():
 def marketing_above():
     user_id = session['user_id']
     with engine.connect() as connection:
+        # Fetch staff information securely
         staff_result = connection.execute(text("""
             SELECT spec_staff, staff_id 
             FROM Staff_workat 
@@ -580,21 +574,27 @@ def marketing_above():
                         
     staff_info = staff_result.fetchone()
     spec_staff = staff_info[0].strip() if staff_info else None
+
     with engine.connect() as connection:
+        # Fetch marketing level securely
         marketing_result = connection.execute(text("""
-            SELECT marketing_id,level 
+            SELECT marketing_id, level 
             FROM marketing 
             WHERE staff_id = :staff_id
-            """), {"staff_id": staff_info[1]})
-        marketing_result = marketing_result.fetchone()
+        """), {"staff_id": staff_info[1]})
+        
+        marketing_info = marketing_result.fetchone()
+        marketing_id = marketing_info[0]
+
+        # Retrieve exhibitions managed by the marketing member
         managed_result = connection.execute(text("""
             SELECT eh.name AS exhibition_name, ag.name AS gallery_name, eh.exhib_date AS exhibition_date, 
-            eh.start_time, eh.end_time, m.marketing_id, eh.exhibition_id
+                   eh.start_time, eh.end_time, m.marketing_id, eh.exhibition_id
             FROM Exhibitions_Host eh
             JOIN ArtGallery ag ON eh.gallery_id = ag.gallery_id
             JOIN Manage m ON eh.exhibition_id = m.exhibition_id AND eh.gallery_id = m.gallery_id
-            WHERE m.marketing_id = :marketing_id;
-            """), {"marketing_id": marketing_result[0]})
+            WHERE m.marketing_id = :marketing_id
+        """), {"marketing_id": marketing_id})
 
         managed_exhib = managed_result.fetchall() 
 
@@ -602,33 +602,34 @@ def marketing_above():
         for exhibition in managed_exhib:
             exhibition_id = exhibition.exhibition_id  
 
-            below7_query = text("""
+            # Retrieve staff with a marketing level below 7 who are not managing this exhibition
+            below7_staff_query = text("""
                 SELECT m.marketing_id, sw.staff_id, s.first_name, s.last_name
                 FROM Manage m
                 JOIN Marketing mk ON m.marketing_id = mk.marketing_id
                 JOIN Staff_workat sw ON mk.staff_id = sw.staff_id
                 JOIN Users s ON sw.user_id = s.user_id
                 WHERE m.exhibition_id = :exhibition_id
-                AND mk.level < 7
-                """)
-
-            below7_staff = connection.execute(below7_query, {'exhibition_id': exhibition_id}).fetchall()
+                  AND mk.level < 7
+            """)
+            below7_staff = connection.execute(below7_staff_query, {"exhibition_id": exhibition_id}).fetchall()
 
             exhibitions_info[exhibition_id] = {
-                    'exhibition_name': exhibition[0],  
-                    'gallery_name': exhibition[1],      
-                    'exhibition_date': exhibition[2],   
-                    'start_time': exhibition[3],       
-                    'end_time': exhibition[4],          
-                    'below7_staff_id': [staff[0] for staff in below7_staff],  
-                    'below7_staff_first_name_last_name': [f"{staff[2]} {staff[3]}" for staff in below7_staff] 
-                }
-            
+                'exhibition_name': exhibition[0],
+                'gallery_name': exhibition[1],
+                'exhibition_date': exhibition[2],
+                'start_time': exhibition[3],
+                'end_time': exhibition[4],
+                'below7_staff_id': [staff[0] for staff in below7_staff],
+                'below7_staff_first_name_last_name': [f"{staff[2]} {staff[3]}" for staff in below7_staff]
+            }
+        
+        # Fetch candidate marketing members not managing the current exhibition with marketing level above 7
         exhibition_details = []
         for exhibition in managed_exhib:
             exhibition_id = exhibition.exhibition_id
                                             
-            query = """
+            candidates_query = text("""
                 WITH Exhibition_Details AS (
                     SELECT eh.exhibition_id, eh.exhib_date, eh.start_time, eh.end_time, eh.gallery_id
                     FROM Exhibitions_Host eh
@@ -641,10 +642,9 @@ def marketing_above():
                     JOIN Staff_workat sw ON ww.staff_id = sw.staff_id
                     JOIN Marketing m ON sw.staff_id = m.staff_id
                     JOIN Exhibition_Details ed ON s.shift_date = ed.exhib_date
-                    WHERE
-                        m.level > 7
-                        AND s.start_time <= ed.end_time
-                        AND s.end_time >= ed.start_time
+                    WHERE m.level > 7
+                      AND s.start_time <= ed.end_time
+                      AND s.end_time >= ed.start_time
                 ),
                 Not_Managing AS (
                     SELECT am.marketing_id
@@ -659,10 +659,10 @@ def marketing_above():
                 FROM Not_Managing nm
                 JOIN Marketing m ON nm.marketing_id = m.marketing_id
                 JOIN Staff_workat sw ON m.staff_id = sw.staff_id
-                JOIN Users u ON sw.user_id = u.user_id;
-                """
+                JOIN Users u ON sw.user_id = u.user_id
+            """)
 
-            candidates_result = connection.execute(text(query), {"exhibition_id": exhibition_id})
+            candidates_result = connection.execute(candidates_query, {"exhibition_id": exhibition_id})
             candidates_data = candidates_result.fetchall()
 
             exhibition_details.append({
@@ -670,8 +670,9 @@ def marketing_above():
                 'candidates': candidates_data
             })
 
-            new_result = connection.execute(text("""
-                WITH my_shifts AS (
+        # Fetch additional exhibition information for shifts managed by the marketing member
+        new_info_query = text("""
+            WITH my_shifts AS (
                 SELECT s.shift_date, s.start_time AS shift_start, s.end_time AS shift_end
                 FROM Shifts s
                 JOIN When_work w ON s.shift_id = w.shift_id
@@ -681,24 +682,25 @@ def marketing_above():
             ),
             managed_exhib AS (
                 SELECT eh.exhibition_id, eh.gallery_id, eh.name AS exhibition_name, 
-                    eh.exhib_date, eh.start_time AS exhibition_start, 
-                    eh.end_time AS exhibition_end, eh.description
+                       eh.exhib_date, eh.start_time AS exhibition_start, 
+                       eh.end_time AS exhibition_end, eh.description
                 FROM Exhibitions_Host eh
                 LEFT JOIN Manage m ON eh.exhibition_id = m.exhibition_id
-                WHERE m.exhibition_id IS NULL  -- No marketing managing the exhibition
+                WHERE m.exhibition_id IS NULL
             )
             SELECT me.exhibition_name AS "Exhibition Name", me.exhib_date AS "Exhibition Date", 
-            me.exhibition_start AS "Start Time", me.exhibition_end AS "End Time", me.gallery_id, me.description, me.exhibition_id AS "Exhibition ID"
+                   me.exhibition_start AS "Start Time", me.exhibition_end AS "End Time", 
+                   me.gallery_id, me.description, me.exhibition_id AS "Exhibition ID"
             FROM managed_exhib me
             JOIN my_shifts ms ON me.exhib_date = ms.shift_date
             WHERE ms.shift_start <= me.exhibition_start 
-            AND ms.shift_end >= me.exhibition_end
+              AND ms.shift_end >= me.exhibition_end
+        """)
 
-            """), {"marketing_id": marketing_result[0]})
+        new_info_result = connection.execute(new_info_query, {"marketing_id": marketing_id})
+        new_info = new_info_result.fetchall()  
 
-            new_info = new_result.fetchall()  
-
-            return render_template('marketing_above.html', exhibitions_info=exhibitions_info, exhibition_details=exhibition_details, new_info=new_info)
+        return render_template('marketing_above.html', exhibitions_info=exhibitions_info, exhibition_details=exhibition_details, new_info=new_info)
 
 @app.route('/delete_exhibition', methods=["POST"])
 def delete_exhibition():
@@ -710,38 +712,38 @@ def delete_exhibition():
             FROM Staff_workat 
             WHERE user_id = :user_id
         """), {"user_id": user_id})
-                        
+        
     staff_info = staff_result.fetchone()
-    spec_staff = staff_info[0].strip() if staff_info else None
-    with engine.connect() as connection:
-        marketing_result = connection.execute(text("""
-            SELECT marketing_id,level 
-            FROM marketing 
-            WHERE staff_id = :staff_id
+    if staff_info:
+        with engine.connect() as connection:
+            marketing_result = connection.execute(text("""
+                SELECT marketing_id, level 
+                FROM Marketing 
+                WHERE staff_id = :staff_id
             """), {"staff_id": staff_info[1]})
-        marketing_result = marketing_result.fetchone()
-    marketing_id = marketing_result[0]
+            marketing_result = marketing_result.fetchone()
+            if marketing_result:
+                marketing_id = marketing_result[0]
 
-    with engine.connect() as connection:
-        # Remove management for this exhibition
-        connection.execute(text("""
-            DELETE FROM Manage
-            WHERE exhibition_id = :exhibition_id AND marketing_id = :marketing_id
-        """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
+                # Remove management for this exhibition
+                connection.execute(text("""
+                    DELETE FROM Manage
+                    WHERE exhibition_id = :exhibition_id AND marketing_id = :marketing_id
+                """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
 
-        # Remove below level 7 staff
-        below7_result = connection.execute(text("""
-            SELECT m.marketing_id FROM Manage m
-            JOIN Marketing mk ON m.marketing_id = mk.marketing_id
-            WHERE m.exhibition_id = :exhibition_id AND mk.level < 7
-        """), {"exhibition_id": exhibition_id})
+                # Remove below level 7 staff
+                below7_result = connection.execute(text("""
+                    SELECT m.marketing_id FROM Manage m
+                    JOIN Marketing mk ON m.marketing_id = mk.marketing_id
+                    WHERE m.exhibition_id = :exhibition_id AND mk.level < 7
+                """), {"exhibition_id": exhibition_id})
 
-        below7_ids = [row[0] for row in below7_result.fetchall()]
-        for below7_id in below7_ids:
-            connection.execute(text("""
-                DELETE FROM Manage
-                WHERE exhibition_id = :exhibition_id AND marketing_id = :below7_id
-            """), {"exhibition_id": exhibition_id, "below7_id": below7_id})
+                below7_ids = [row[0] for row in below7_result.fetchall()]
+                for below7_id in below7_ids:
+                    connection.execute(text("""
+                        DELETE FROM Manage
+                        WHERE exhibition_id = :exhibition_id AND marketing_id = :below7_id
+                    """), {"exhibition_id": exhibition_id, "below7_id": below7_id})
 
     return redirect(url_for('marketing_above'))
 
@@ -755,26 +757,26 @@ def manage_exhibition():
             FROM Staff_workat 
             WHERE user_id = :user_id
         """), {"user_id": user_id})
-                        
+        
     staff_info = staff_result.fetchone()
-    spec_staff = staff_info[0].strip() if staff_info else None
-    with engine.connect() as connection:
-        marketing_result = connection.execute(text("""
-            SELECT marketing_id,level 
-            FROM marketing 
-            WHERE staff_id = :staff_id
+    if staff_info:
+        with engine.connect() as connection:
+            marketing_result = connection.execute(text("""
+                SELECT marketing_id, level 
+                FROM Marketing 
+                WHERE staff_id = :staff_id
             """), {"staff_id": staff_info[1]})
-        marketing_result = marketing_result.fetchone()
-    marketing_id = marketing_result[0]
+            marketing_result = marketing_result.fetchone()
+            if marketing_result:
+                marketing_id = marketing_result[0]
 
-    with engine.connect() as connection:
-        # Add management for this exhibition
-        connection.execute(text("""
-            INSERT INTO Manage (exhibition_id, gallery_id, marketing_id)
-            SELECT :exhibition_id, gallery_id, :marketing_id
-            FROM Exhibitions_Host
-            WHERE exhibition_id = :exhibition_id
-        """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
+                # Add management for this exhibition
+                connection.execute(text("""
+                    INSERT INTO Manage (exhibition_id, gallery_id, marketing_id)
+                    SELECT :exhibition_id, gallery_id, :marketing_id
+                    FROM Exhibitions_Host
+                    WHERE exhibition_id = :exhibition_id
+                """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
 
     return redirect(url_for('marketing_above'))
 
@@ -788,30 +790,29 @@ def remove_management():
             FROM Staff_workat 
             WHERE user_id = :user_id
         """), {"user_id": user_id})
-                        
+        
     staff_info = staff_result.fetchone()
-    spec_staff = staff_info[0].strip() if staff_info else None
-    with engine.connect() as connection:
-        marketing_result = connection.execute(text("""
-            SELECT marketing_id,level 
-            FROM marketing 
-            WHERE staff_id = :staff_id
+    if staff_info:
+        with engine.connect() as connection:
+            marketing_result = connection.execute(text("""
+                SELECT marketing_id, level 
+                FROM Marketing 
+                WHERE staff_id = :staff_id
             """), {"staff_id": staff_info[1]})
-        marketing_result = marketing_result.fetchone()
-    marketing_id = marketing_result[0]
+            marketing_result = marketing_result.fetchone()
+            if marketing_result:
+                marketing_id = marketing_result[0]
 
-    with engine.connect() as connection:
-        # Delete the row from Manage
-        connection.execute(text("""
-            DELETE FROM Manage 
-            WHERE exhibition_id = :exhibition_id 
-            AND marketing_id = :marketing_id
-        """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
-    
+                # Delete the row from Manage
+                connection.execute(text("""
+                    DELETE FROM Manage 
+                    WHERE exhibition_id = :exhibition_id 
+                    AND marketing_id = :marketing_id
+                """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
+
     flash("Exhibition removed from your management list.", "success")
     return redirect(url_for('marketing_below'))
 
-# Route to add management of an exhibition
 @app.route('/add_management', methods=["POST"])
 def add_management():
     exhibition_id = request.form['exhibition_id']
@@ -822,26 +823,26 @@ def add_management():
             FROM Staff_workat 
             WHERE user_id = :user_id
         """), {"user_id": user_id})
-                        
+        
     staff_info = staff_result.fetchone()
-    spec_staff = staff_info[0].strip() if staff_info else None
-    with engine.connect() as connection:
-        marketing_result = connection.execute(text("""
-            SELECT marketing_id,level 
-            FROM marketing 
-            WHERE staff_id = :staff_id
+    if staff_info:
+        with engine.connect() as connection:
+            marketing_result = connection.execute(text("""
+                SELECT marketing_id, level 
+                FROM Marketing 
+                WHERE staff_id = :staff_id
             """), {"staff_id": staff_info[1]})
-        marketing_result = marketing_result.fetchone()
-    marketing_id = marketing_result[0]
+            marketing_result = marketing_result.fetchone()
+            if marketing_result:
+                marketing_id = marketing_result[0]
 
-    with engine.connect() as connection:
-        # Add the row to Manage
-        connection.execute(text("""
-            INSERT INTO Manage (exhibition_id, gallery_id, marketing_id)
-            SELECT :exhibition_id, gallery_id, :marketing_id
-            FROM Exhibitions_Host
-            WHERE exhibition_id = :exhibition_id
-        """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
+                # Add the row to Manage
+                connection.execute(text("""
+                    INSERT INTO Manage (exhibition_id, gallery_id, marketing_id)
+                    SELECT :exhibition_id, gallery_id, :marketing_id
+                    FROM Exhibitions_Host
+                    WHERE exhibition_id = :exhibition_id
+                """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
 
     flash("Exhibition added to your management list.", "success")
     return redirect(url_for('marketing_below'))
@@ -853,25 +854,19 @@ def purchase_art():
     art_id = data.get('art_id')
 
     if not client_id or not art_id:
-        return jsonify({'success': False, 'error': 'Missing guest ID or art ID'})
+        return jsonify({'success': False, 'error': 'Missing client ID or art ID'})
 
-    # Log the data for debugging
-    print("Client ID:", client_id)
-    print("Art ID:", art_id)
+    # Purchase art query
+    purchase_query = text("""
+        INSERT INTO Purchases (client_id, art_id, purchase_date)
+        VALUES (:client_id, :art_id, NOW())
+    """)
 
-    query = text("""
-        
-        """)
-
-        # Execute the query using the connection
     try:
         with engine.connect() as connection:
-            connection.execute(query, {'client_id': client_id, 'art_id': art_id})
-            connection.commit()
+            connection.execute(purchase_query, {'client_id': client_id, 'art_id': art_id})
 
-        # Return success response
         return jsonify({'success': True})
-
     except Exception as e:
         print("Error executing query:", e)
         return jsonify({'success': False, 'error': str(e)})
