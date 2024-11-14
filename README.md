@@ -9,11 +9,14 @@ This project was built as part of Columbia University's COMS 4111: Introduction 
 
 1. Clone the repository:
 ```
- git clone https://github.com/AnushkaBhatnagar/Artisano.git
+git clone https://github.com/AnushkaBhatnagar/Artisano.git
 ```
 
 2. Navigate into the project directory
-3. Install the required dependencies (Flask)
+3. Install the required dependencies
+```
+pip install -r requirements.txt
+```
 
 4. To run the application, run the following command:
 ```
