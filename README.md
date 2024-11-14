@@ -31,6 +31,8 @@ Artisano is built using the following technologies:
 
 **Database:** PostgreSQL instance hosted on Amazon RDS
 
+The website was deployed on Google Cloud Platform for the duration of project submission
+
 ## Credits
 
 This project was made by Anushka Bhatnagar and [@Cyril Van Leer](https://github.com/Cyril27) 
