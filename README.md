@@ -2,7 +2,7 @@
 
 Artisano is an innovative web application to help art galleries manage their exhibitions, artist collaborations, staff and transactions more effectively. Galleries function as cultural hubs, hosting exhibitions that showcase diverse art pieces produced by renowned and emerging artists. Our system not only tracks the lifecycle of an artwork—from creation to exhibition and eventual purchase—but also manages the logistical aspects, such as gallery's internal operations including staff assignments and marketing, and maintaining the clients’ inventory records.
 
-This project was built as part of Columbia University's COMS 4111: Introduction to Databases under Professor Eugene Wu
+This project was built as part of Columbia University's COMS 4111: Introduction to Databases under Professor Eugene Wu.
 
 ## Getting Started
 
@@ -30,7 +30,7 @@ Artisano is built using the following technologies:
 
 **Front-end:** HTML, CSS, JavaScript, Bootstrap
 
-**Back-end:** Python Flask, SQLAlchemy (no ORM), PostgreSQL
+**Back-end:** SQL, Python Flask, SQLAlchemy (no ORM), PostgreSQL
 
 **Database:** PostgreSQL instance hosted on Amazon RDS
 
