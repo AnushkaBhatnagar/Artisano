@@ -277,6 +277,7 @@ def delete_ticket():
                 DELETE FROM Attend WHERE exhibition_id = :exhibition_id AND visitor_id = :visitor_id
             """)
             connection.execute(delete_query, {"exhibition_id": exhibition_id, "visitor_id": visitor_id})
+            connection.commit()
 
     return redirect(url_for("visitor"))
 
@@ -349,6 +350,7 @@ def get_ticket():
                 "gallery_id": gallery_id,
                 "visitor_id": visitor_id
             })
+            connection.commit()
 
             # Fetch the details of the booked exhibition to send back to the client
             exhibition_query = text("""
@@ -447,6 +449,7 @@ def remove_collaboration(artist_id):
             SET liason_id = NULL
             WHERE artist_id = :artist_id
         """), {"artist_id": artist_id})
+        connection.commit()
     return jsonify({"success": True})
 
 @app.route('/add_collaboration', methods=["POST"])
@@ -482,7 +485,7 @@ def add_collaboration():
             WHERE artist_id = :artist_id
         """)
         connection.execute(update_query, {"liaison_id": liaison_id, "artist_id": artist_id})
-
+        connection.commit()
     return jsonify({"success": True})
 
 @app.route('/marketing_below', methods=["GET", "POST"])
@@ -742,7 +745,7 @@ def delete_exhibition():
                     DELETE FROM Manage
                     WHERE exhibition_id = :exhibition_id AND marketing_id = :marketing_id
                 """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
-
+                connection.commit()
                 # Remove below level 7 staff
                 below7_result = connection.execute(text("""
                     SELECT m.marketing_id FROM Manage m
@@ -756,7 +759,7 @@ def delete_exhibition():
                         DELETE FROM Manage
                         WHERE exhibition_id = :exhibition_id AND marketing_id = :below7_id
                     """), {"exhibition_id": exhibition_id, "below7_id": below7_id})
-
+                    connection.commit()
     return redirect(url_for('marketing_above'))
 
 @app.route('/manage_exhibition', methods=["POST"])
@@ -789,7 +792,7 @@ def manage_exhibition():
                     FROM Exhibitions_Host
                     WHERE exhibition_id = :exhibition_id
                 """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
-
+                connection.commit()
     return redirect(url_for('marketing_above'))
 
 @app.route('/remove_management', methods=["POST"])
@@ -821,7 +824,7 @@ def remove_management():
                     WHERE exhibition_id = :exhibition_id 
                     AND marketing_id = :marketing_id
                 """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
-
+                connection.commit()
     flash("Exhibition removed from your management list.", "success")
     return redirect(url_for('marketing_below'))
 
@@ -855,7 +858,7 @@ def add_management():
                     FROM Exhibitions_Host
                     WHERE exhibition_id = :exhibition_id
                 """), {"exhibition_id": exhibition_id, "marketing_id": marketing_id})
-
+                connection.commit()
     flash("Exhibition added to your management list.", "success")
     return redirect(url_for('marketing_below'))
 
@@ -920,6 +923,7 @@ def purchase_art():
             connection.execute(query_purchase, {'art_id': art_id})
             connection.execute(query_item, {'client_id': client_id, 'art_id': art_id})
             connection.execute(query_art, {'art_id': art_id})
+            connection.commit()
         return jsonify({'success': True})
     except Exception as e:
         print("Error executing query:", e)
