@@ -192,6 +192,27 @@ def client_page():
                         "bank_account": bank_account
                     })
                     client_id = result.fetchone()[0]  # Get the generated client_id
+
+                    # Retrieve the last inventory_id from the Inventory_owned table
+                    last_inventory_query = text("""
+                        SELECT COALESCE(MAX(inventory_id), 0) FROM Inventory_owned
+                    """)
+                    last_inventory_result = connection.execute(last_inventory_query)
+                    last_inventory_id = last_inventory_result.fetchone()[0]
+
+                    # Insert a new record into the Inventory_owned table
+                    new_inventory_id = last_inventory_id + 1
+                    insert_inventory_query = text("""
+                        INSERT INTO Inventory_owned (inventory_id, status, client_id) 
+                        VALUES (:inventory_id, :status, :client_id)
+                    """)
+                    connection.execute(insert_inventory_query, {
+                        "inventory_id": new_inventory_id,
+                        "status": 'Available',
+                        "client_id": client_id
+                    })
+                    connection.commit()  
+                    
                     return render_template("client.html", client_id=client_id)
 
             # If not a POST request, render the modal to collect bank account
