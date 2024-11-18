@@ -211,35 +211,47 @@ def visitor():
         visitor_result = connection.execute(visitor_query, {"guest_id": session['guest_id']})
         visitor_row = visitor_result.fetchone()
 
-        if visitor_row:
-            visitor_id = visitor_row[0]
-
-            # Get tickets for the user
-            my_tickets_query = text("""
-                SELECT A.exhibition_id, E.name, E.exhib_date, E.start_time, E.end_time, E.description, 
-                       G.name AS gallery_name, D.city
-                FROM Attend A
-                JOIN Exhibitions_Host E ON A.exhibition_id = E.exhibition_id
-                JOIN ArtGallery G ON E.gallery_id = G.gallery_id
-                JOIN Address D ON G.location = D.address_id
-                WHERE A.visitor_id = :visitor_id
+        # If no visitor is found, insert the guest_id into the Visitor table
+        if not visitor_row:
+            insert_visitor_query = text("""
+                INSERT INTO Visitor (guest_id) VALUES (:guest_id)
             """)
-            my_tickets = connection.execute(my_tickets_query, {"visitor_id": visitor_id}).fetchall()
+            connection.execute(insert_visitor_query, {"guest_id": session['guest_id']})
+            # connection.commit()  # Ensure the insertion is saved to the database
 
-            # Get available exhibitions
-            exhibitions_query = text("""
-                SELECT E.exhibition_id, E.name, E.exhib_date, E.start_time, E.end_time, E.description, E.gallery_id,
-                       G.name AS gallery_name, D.city
-                FROM Exhibitions_Host E
-                JOIN ArtGallery G ON E.gallery_id = G.gallery_id
-                JOIN Address D ON G.location = D.address_id
-                WHERE E.exhibition_id NOT IN (SELECT exhibition_id FROM Attend WHERE visitor_id = :visitor_id)
-            """)
-            exhibitions = connection.execute(exhibitions_query, {"visitor_id": visitor_id}).fetchall()
+            # Fetch the newly created visitor_id
+            visitor_result = connection.execute(visitor_query, {"guest_id": session['guest_id']})
+            visitor_row = visitor_result.fetchone()
 
-            return render_template("visitor.html", my_tickets=my_tickets, exhibitions=exhibitions)
+        visitor_id = visitor_row[0]
+
+        # Get tickets for the user
+        my_tickets_query = text("""
+            SELECT A.exhibition_id, E.name, E.exhib_date, E.start_time, E.end_time, E.description, 
+                   G.name AS gallery_name, D.city
+            FROM Attend A
+            JOIN Exhibitions_Host E ON A.exhibition_id = E.exhibition_id
+            JOIN ArtGallery G ON E.gallery_id = G.gallery_id
+            JOIN Address D ON G.location = D.address_id
+            WHERE A.visitor_id = :visitor_id
+        """)
+        my_tickets = connection.execute(my_tickets_query, {"visitor_id": visitor_id}).fetchall()
+
+        # Get available exhibitions
+        exhibitions_query = text("""
+            SELECT E.exhibition_id, E.name, E.exhib_date, E.start_time, E.end_time, E.description, E.gallery_id,
+                   G.name AS gallery_name, D.city
+            FROM Exhibitions_Host E
+            JOIN ArtGallery G ON E.gallery_id = G.gallery_id
+            JOIN Address D ON G.location = D.address_id
+            WHERE E.exhibition_id NOT IN (SELECT exhibition_id FROM Attend WHERE visitor_id = :visitor_id)
+        """)
+        exhibitions = connection.execute(exhibitions_query, {"visitor_id": visitor_id}).fetchall()
+
+        return render_template("visitor.html", my_tickets=my_tickets, exhibitions=exhibitions)
 
     return render_template("visitor.html", my_tickets=[], exhibitions=[])
+
 
 
 @app.route("/delete_ticket", methods=["POST"])
@@ -853,19 +865,61 @@ def purchase_art():
     client_id = data.get('client_id')
     art_id = data.get('art_id')
 
-    if not client_id or not art_id:
-        return jsonify({'success': False, 'error': 'Missing client ID or art ID'})
 
-    # Purchase art query
-    purchase_query = text("""
-        INSERT INTO Purchases (client_id, art_id, purchase_date)
-        VALUES (:client_id, :art_id, NOW())
+    if not client_id or not art_id:
+        return jsonify({'success': False, 'error': 'Missing guest ID or art ID'})
+
+    # Log the data for debugging
+    print("Client ID:", client_id)
+    print("Art ID:", art_id)
+
+    query_contract = text("""
+    INSERT INTO Contract (gallery_id, Client_id, priority)
+    SELECT ag.gallery_id, :client_id, 1 
+    FROM ArtPieces_Produce ap
+    JOIN Artists_Collaborates ac ON ap.artist_id = ac.artist_id
+    JOIN Liaison li ON ac.liason_id = li.liaison_id
+    JOIN Staff_workat sw ON li.staff_id = sw.staff_id
+    JOIN ArtGallery ag ON sw.gallery_id = ag.gallery_id
+    WHERE ap.art_id = :art_id; 
+        """)
+
+    query_purchase = text("""
+    WITH LatestContract AS (
+        SELECT contract_id
+        FROM Contract
+        ORDER BY contract_id DESC
+        LIMIT 1
+    ),
+    ArtistInfo AS (
+        SELECT artist_id
+        FROM ArtPieces_Produce
+        WHERE art_id = :art_id
+    )
+    INSERT INTO Purchase (art_id, artist_id, contract_id)
+    SELECT :art_id,  ai.artist_id, lc.contract_id
+    FROM ArtistInfo ai,LatestContract lc
+    """)
+
+    query_item = text("""
+    INSERT INTO Item_in (name, artist, photo_url, location, volume, comment, net_worth, Inventory_id, Client_id)
+    SELECT ap.name, ac.name AS artist, ap.Photo_url, 'N/A' AS location, 0.0 AS volume, 'N/A' AS comment, ap.Price AS net_worth, io.Inventory_id, io.Client_id
+    FROM ArtPieces_Produce ap
+    JOIN Artists_Collaborates ac ON ap.artist_id = ac.artist_id
+    JOIN Inventory_owned io ON io.Client_id = :client_id
+    WHERE ap.art_id = :art_id
+    """)
+
+    query_art = text("""
+    DELETE FROM ArtPieces_Produce WHERE art_id = :art_id
     """)
 
     try:
         with engine.connect() as connection:
-            connection.execute(purchase_query, {'client_id': client_id, 'art_id': art_id})
-
+            connection.execute(query_contract, {'client_id': client_id, 'art_id': art_id})
+            connection.execute(query_purchase, {'art_id': art_id})
+            connection.execute(query_item, {'client_id': client_id, 'art_id': art_id})
+            connection.execute(query_art, {'art_id': art_id})
         return jsonify({'success': True})
     except Exception as e:
         print("Error executing query:", e)
